@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.support.v4.app.Fragment
 import android.support.v4.app.FragmentManager
 import android.support.v4.app.FragmentTransaction
-import android.support.v7.app.AppCompatActivity
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.xloger.exlink.app.entity.App
@@ -83,18 +82,8 @@ class HookMain : IXposedHookLoadPackage {
                         MyLog.log("hook webview 失败")
                     }
                 }
-                try {
-                    findAndHookMethod(AppCompatActivity::class.java, "startActivityForResult", Intent::class.java, Int::class.javaPrimitiveType, Bundle::class.java, xc_methodHook)
-                }catch (ex: NoSuchMethodError) {
-                    MyLog.e(ex.toString())
-                } catch (ex : Exception) {
-                    MyLog.e(ex.toString())
-                }
-                try {
-                    findAndHookMethod(Activity::class.java, "startActivityForResult", Intent::class.java, Int::class.javaPrimitiveType, Bundle::class.java, xc_methodHook)
-                } catch (ex : Exception) {
-                    MyLog.e(ex.toString())
-                }
+                hookStartActivityForResult(Activity::class.java, true)
+                hookTargetAppCompat(lpparam.classLoader)
                 break
             }
         }
@@ -124,12 +113,61 @@ class HookMain : IXposedHookLoadPackage {
         }
     }
 
+    private fun hookTargetAppCompat(classLoader: ClassLoader) {
+        hookTargetClass(classLoader, "androidx.activity.ComponentActivity")
+        hookTargetClass(classLoader, "androidx.appcompat.app.AppCompatActivity")
+        hookTargetClass(classLoader, "androidx.fragment.app.FragmentActivity")
+        hookTargetClass(classLoader, "android.support.v7.app.AppCompatActivity")
+        hookTargetClass(classLoader, "android.support.v4.app.FragmentActivity")
+    }
+
+    private fun hookTargetClass(classLoader: ClassLoader, className: String) {
+        val clazz = try {
+            Class.forName(className, false, classLoader)
+        } catch (ignored: Throwable) {
+            return
+        }
+        hookStartActivityForResult(clazz, false)
+    }
+
+    private fun hookStartActivityForResult(clazz: Class<*>, logFailure: Boolean) {
+        var hooked = false
+        try {
+            findAndHookMethod(clazz, "startActivityForResult", Intent::class.java, Int::class.javaPrimitiveType, Bundle::class.java, xc_methodHook)
+            hooked = true
+        } catch (ignored: NoSuchMethodError) {
+        } catch (throwable: Throwable) {
+            if (logFailure) {
+                MyLog.e("hook ${clazz.name}.startActivityForResult(Intent, int, Bundle) failed: $throwable")
+            }
+        }
+
+        try {
+            findAndHookMethod(clazz, "startActivityForResult", Intent::class.java, Int::class.javaPrimitiveType, xc_methodHook)
+            hooked = true
+        } catch (ignored: NoSuchMethodError) {
+        } catch (throwable: Throwable) {
+            if (logFailure) {
+                MyLog.e("hook ${clazz.name}.startActivityForResult(Intent, int) failed: $throwable")
+            }
+        }
+
+        if (!hooked && logFailure) {
+            MyLog.e("hook ${clazz.name}.startActivityForResult failed: method not found")
+        }
+    }
+
     private val xc_methodHook = object : XC_MethodHook() {
 
         @Throws(Throwable::class)
         override fun beforeHookedMethod(param: XC_MethodHook.MethodHookParam?) {
             MyLog.log("调用 startActivityForResult")
-            val booleanExtra = (param!!.args[0] as Intent).getBooleanExtra("exlink", false)
+            val intent = param?.args?.getOrNull(0) as? Intent ?: return
+            if (!markIntentForProcessing(intent)) {
+                return
+            }
+
+            val booleanExtra = intent.getBooleanExtra("exlink", false)
             if (booleanExtra) {
                 MyLog.log("递归，不处理")
                 return
@@ -158,7 +196,6 @@ class HookMain : IXposedHookLoadPackage {
             MyLog.log("Started activity: " + activityName)
 
             //分析获取的Intent
-            val intent = param.args[0] as Intent
             MyLog.log("Intent: " + intent.toString())
 
             val exUrlList = ruleList
@@ -410,10 +447,31 @@ class HookMain : IXposedHookLoadPackage {
 
     }
 
+    private fun markIntentForProcessing(intent: Intent): Boolean {
+        val now = System.currentTimeMillis()
+        synchronized(processedIntents) {
+            val iterator = processedIntents.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (now - entry.value > INTENT_PROCESS_WINDOW_MS) {
+                    iterator.remove()
+                }
+            }
+            val lastProcessTime = processedIntents[intent]
+            if (lastProcessTime != null && now - lastProcessTime <= INTENT_PROCESS_WINDOW_MS) {
+                return false
+            }
+            processedIntents[intent] = now
+            return true
+        }
+    }
+
 
     companion object {
         @JvmStatic
         private var appList: MutableList<App> = mutableListOf()
         private val EX_DAT = "ExDat"
+        private const val INTENT_PROCESS_WINDOW_MS = 250L
+        private val processedIntents = WeakHashMap<Intent, Long>()
     }
 }
