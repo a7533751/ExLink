@@ -163,16 +163,16 @@ class HookMain : IXposedHookLoadPackage {
 
             val exUrlList = ruleList
                     .map { parseUrl(it, param) }
-                    .filter { it.isNotBlank() }
+                    .filter { !it.isNullOrBlank() }
 
             if (exUrlList.isEmpty()) {
-                MyLog.e("Error：无法获取url")
+                MyLog.log("无法获取url，跳过")
                 return
             } else if (exUrlList.size > 1) {
-                MyLog.e("遇到多个 url 的特殊情况，暂不处理。$exUrlList")
+                MyLog.log("遇到多个 url 的特殊情况，暂不处理。$exUrlList")
                 return
             }
-            var exUrl: String = exUrlList[0]
+            var exUrl: String = exUrlList[0] ?: return
 
             //Url规范化
             if (StreamUtil.isUrl(exUrl)) {
@@ -215,29 +215,29 @@ class HookMain : IXposedHookLoadPackage {
             openUrl(param, uri)
         }
 
-        private fun parseUrl(rule: Rule, param: XC_MethodHook.MethodHookParam): String {
-            val intent = param.args[0] as Intent
-            if (rule.extrasKey == EX_DAT) {
+        private fun parseUrl(rule: Rule, param: XC_MethodHook.MethodHookParam): String? {
+            val intent = param.args[0] as? Intent ?: return null
+            val extrasKey = rule.extrasKey ?: return null
+            if (extrasKey == EX_DAT) {
                 return intent.dataString
-            } else if (!intent.getStringExtra(rule.extrasKey).isNullOrBlank()) {
-                return intent.getStringExtra(rule.extrasKey)
+            } else if (!intent.getStringExtra(extrasKey).isNullOrBlank()) {
+                return intent.getStringExtra(extrasKey)
             } else {
                 val bundle = getBundle(param)
-                if (bundle?.getString(rule.extrasKey) != null) {
-                    return bundle.getString(rule.extrasKey)
+                if (!bundle?.getString(extrasKey).isNullOrBlank()) {
+                    return bundle?.getString(extrasKey)
                 }
             }
-            return ""
+            return null
         }
 
         private fun getBundle(param: XC_MethodHook.MethodHookParam): Bundle? {
-            val intent = param.args[0] as Intent
+            val intent = param.args[0] as? Intent ?: return null
             if (intent.extras != null) {
                 return intent.extras
-            } else if (param.args.size > 2 && param.args[2] != null) {
-                return param.args[2] as Bundle
+            } else if (param.args.size > 2) {
+                return param.args[2] as? Bundle
             } else {
-                MyLog.e("获取 Bundle 异常")
                 return null
             }
         }
@@ -417,4 +417,3 @@ class HookMain : IXposedHookLoadPackage {
         private val EX_DAT = "ExDat"
     }
 }
-

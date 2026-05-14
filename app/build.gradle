@@ -3,6 +3,12 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
 
+def releaseStoreFile = project.findProperty("KEYSTORE_FILE") ?: System.getenv("KEYSTORE_FILE") ?: "${projectDir}/keystore.jks"
+def releaseStorePassword = project.findProperty("KEYSTORE_PASSWORD") ?: System.getenv("KEYSTORE_PASSWORD") ?: ""
+def releaseKeyAlias = project.findProperty("KEY_ALIAS") ?: System.getenv("KEY_ALIAS") ?: "xloger"
+def releaseKeyPassword = project.findProperty("KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD") ?: ""
+def hasReleaseSigning = file(releaseStoreFile).exists() && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 repositories {
     jcenter()
     flatDir {
@@ -14,10 +20,10 @@ repositories {
 android {
     signingConfigs {
         config {
-            keyAlias 'xloger'
-            keyPassword KeyPassword
-            storeFile file('C:/Users/xloger/.android/XlogerAndroid.jks')
-            storePassword StorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword
         }
     }
     compileSdkVersion 26
@@ -27,7 +33,6 @@ android {
         targetSdkVersion 26
         versionCode 18
         versionName "3.0"
-        signingConfig signingConfigs.config
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_7
@@ -37,7 +42,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.config
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.config
+            }
         }
     }
     productFlavors {
