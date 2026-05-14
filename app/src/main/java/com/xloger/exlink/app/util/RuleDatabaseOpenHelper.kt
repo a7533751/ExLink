@@ -2,14 +2,14 @@ package com.xloger.exlink.app.util
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import org.jetbrains.anko.db.*
+import android.database.sqlite.SQLiteOpenHelper
 
 /**
  * Created on 2019/8/25 18:05.
  * Author: xloger
  * Email:phoenix@xloger.com
  */
-class RuleDatabaseOpenHelper private constructor(ctx: Context) : ManagedSQLiteOpenHelper(ctx, "rule", null, 1) {
+class RuleDatabaseOpenHelper private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "rule", null, 1) {
 
     init {
         instance = this
@@ -23,9 +23,7 @@ class RuleDatabaseOpenHelper private constructor(ctx: Context) : ManagedSQLiteOp
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.createTable("Rule", true,
-                "id" to INTEGER + PRIMARY_KEY + UNIQUE,
-                "rule" to TEXT)
+        db.execSQL("CREATE TABLE IF NOT EXISTS Rule (id INTEGER PRIMARY KEY UNIQUE, rule TEXT)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, p1: Int, p2: Int) {

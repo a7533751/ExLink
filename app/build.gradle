@@ -10,11 +10,12 @@ def releaseKeyPassword = project.findProperty("KEY_PASSWORD") ?: System.getenv("
 def hasReleaseSigning = file(releaseStoreFile).exists() && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 repositories {
+    google()
+    mavenCentral()
     jcenter()
     flatDir {
         dirs 'libs'
     }
-    google()
 }
 
 android {
@@ -72,5 +73,4 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'com.google.code.gson:gson:2.8.0'
     implementation(name: 'app-release', ext: 'aar')
-    implementation "org.jetbrains.anko:anko-sqlite:0.10.8"
 }
