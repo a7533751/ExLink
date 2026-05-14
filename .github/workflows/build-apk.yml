@@ -2,6 +2,18 @@ name: Build APK
 
 on:
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: Release APK output mode
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - debug-only
+          - unsigned-release
+          - signed-release
+          - both-release
   push:
     branches:
       - master
@@ -35,7 +47,44 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Resolve build mode
+        run: |
+          MODE="${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || 'auto' }}"
+          echo "RELEASE_MODE=$MODE" >> "$GITHUB_ENV"
+
+          case "$MODE" in
+            debug-only)
+              echo "BUILD_UNSIGNED_RELEASE=false" >> "$GITHUB_ENV"
+              echo "BUILD_SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+              echo "REQUIRE_SIGNING=false" >> "$GITHUB_ENV"
+              ;;
+            unsigned-release)
+              echo "BUILD_UNSIGNED_RELEASE=true" >> "$GITHUB_ENV"
+              echo "BUILD_SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+              echo "REQUIRE_SIGNING=false" >> "$GITHUB_ENV"
+              ;;
+            signed-release)
+              echo "BUILD_UNSIGNED_RELEASE=false" >> "$GITHUB_ENV"
+              echo "BUILD_SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+              echo "REQUIRE_SIGNING=true" >> "$GITHUB_ENV"
+              ;;
+            both-release)
+              echo "BUILD_UNSIGNED_RELEASE=true" >> "$GITHUB_ENV"
+              echo "BUILD_SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+              echo "REQUIRE_SIGNING=true" >> "$GITHUB_ENV"
+              ;;
+            auto|*)
+              echo "BUILD_UNSIGNED_RELEASE=false" >> "$GITHUB_ENV"
+              echo "BUILD_SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+              echo "REQUIRE_SIGNING=false" >> "$GITHUB_ENV"
+              ;;
+          esac
+
+      - name: Prepare artifact directories
+        run: mkdir -p artifacts/debug artifacts/unsigned-release artifacts/signed-release
+
       - name: Prepare signing key
+        if: ${{ env.BUILD_SIGNED_RELEASE == 'true' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -47,31 +96,51 @@ jobs:
             echo "HAS_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
           else
             echo "HAS_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+            if [ "$REQUIRE_SIGNING" = "true" ]; then
+              echo "Signed release was requested, but signing secrets are incomplete." >&2
+              exit 1
+            fi
           fi
 
       - name: Build debug APK
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleDebug --stacktrace
+          cp app/build/outputs/apk/debug/*.apk artifacts/debug/
+
+      - name: Build unsigned release APK
+        if: ${{ env.BUILD_UNSIGNED_RELEASE == 'true' }}
+        run: |
+          ./gradlew :app:clean :app:assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/*.apk artifacts/unsigned-release/
 
       - name: Build signed release APK
-        if: ${{ env.HAS_RELEASE_SIGNING == 'true' }}
+        if: ${{ env.BUILD_SIGNED_RELEASE == 'true' && env.HAS_RELEASE_SIGNING == 'true' }}
         env:
           KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --stacktrace
+        run: |
+          ./gradlew :app:clean :app:assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/*.apk artifacts/signed-release/
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: ExLink-Debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: artifacts/debug/*.apk
 
-      - name: Upload release APK
-        if: ${{ env.HAS_RELEASE_SIGNING == 'true' }}
+      - name: Upload unsigned release APK
+        if: ${{ env.BUILD_UNSIGNED_RELEASE == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ExLink-Release
-          path: app/build/outputs/apk/release/*.apk
+          name: ExLink-Release-Unsigned
+          path: artifacts/unsigned-release/*.apk
+
+      - name: Upload signed release APK
+        if: ${{ env.BUILD_SIGNED_RELEASE == 'true' && env.HAS_RELEASE_SIGNING == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExLink-Release-Signed
+          path: artifacts/signed-release/*.apk
